@@ -1,7 +1,7 @@
-# Issue Orchestrator
+# Opencode Orchestrator
 
 <p>
-  <strong>Issue Orchestrator</strong> is a Go command-line application for coordinating Linear issues, isolated worktrees, and agent execution through <a href="https://github.com/anomalyco/opencode">opencode</a>.
+  <strong>Opencode Orchestrator</strong> is a Go command-line application for coordinating Linear issues, isolated worktrees, and agent execution through <a href="https://github.com/anomalyco/opencode">opencode</a>.
 </p>
 
 <p>
@@ -10,7 +10,7 @@
 
 ## Overview
 
-Issue Orchestrator connects a few moving pieces that are common in agent-assisted development workflows:
+Opencode Orchestrator connects a few moving pieces that are common in agent-assisted development workflows:
 
 - Linear issue discovery and status updates
 - Per-issue Git worktrees for isolated changes
