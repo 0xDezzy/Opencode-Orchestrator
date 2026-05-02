@@ -16,7 +16,7 @@ func TestRenderIncludesIssueWorkspaceAndCriteria(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"MUN-123", "/tmp/w", "agent/mun-123", "Completion criteria"} {
+	for _, want := range []string{"MUN-123", "/tmp/w", "agent/mun-123", "Completion criteria", "Push the worktree branch to origin using the provided branch name."} {
 		if !strings.Contains(p, want) {
 			t.Fatalf("prompt missing %s", want)
 		}
