@@ -104,6 +104,9 @@ func (r *Repository) UpsertIssueSnapshot(ctx context.Context, s *models.IssueSna
 	s.ID = old.ID
 	return r.db.WithContext(ctx).Save(s).Error
 }
+func (r *Repository) UpdateIssueSnapshotState(ctx context.Context, issueID, state string) error {
+	return r.db.WithContext(ctx).Model(&models.IssueSnapshot{}).Where("issue_id = ?", issueID).Updates(map[string]any{"state": state, "fetched_at": time.Now()}).Error
+}
 func (r *Repository) UpsertWorkspace(ctx context.Context, w *models.Workspace) error {
 	var old models.Workspace
 	err := r.db.WithContext(ctx).Where("issue_id = ?", w.IssueID).First(&old).Error
