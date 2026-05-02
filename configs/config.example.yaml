@@ -1,0 +1,68 @@
+app:
+  name: orchestrator
+  environment: dev
+logging:
+  level: info
+  format: text
+  file_path: ./.orchestrator/orchestrator.log
+  tui_mirror_to_file: true
+server:
+  enabled: true
+  address: 127.0.0.1:8787
+tui:
+  enabled: true
+  refresh_interval: 1s
+  max_log_lines: 1000
+  show_debug_logs: false
+  table: runs
+  log_format: json
+sqlite:
+  path: ./.orchestrator/orchestrator.db
+linear:
+  api_key: ""
+  team_key: ""
+  project_name: ""
+  active_states: ["Ready for Agent"]
+  running_state: Agent Running
+  review_state: Human Review
+  failed_state: Agent Failed
+  labels:
+    include: [agent]
+    exclude: [no-agent]
+workspace:
+  repo_path: .
+  root: ./.orchestrator/worktrees
+  base_branch: main
+  branch_prefix: agent
+  preserve_failed: true
+  preserve_successful: true
+scheduler:
+  poll_interval: 30s
+  max_concurrent_runs: 2
+  max_attempts: 3
+  lock_ttl: 2h
+llm:
+  provider: ollama
+  model: granite4.1:latest
+  base_url: http://localhost:11434/v1
+  timeout: 30s
+  max_output_tokens: 1200
+  temperature: 0.1
+  select_tasks: true
+opencode:
+  command: opencode
+  args: [acp]
+  # OpenCode model IDs use provider/model format. Run `opencode models --refresh`
+  # or `opencode models <provider>` to find valid values.
+  model: ""
+  small_model: ""
+  timeout: 2h
+  stall_timeout: 10m
+handoff:
+  update_linear: false
+  comment_on_start: false
+  comment_on_success: false
+  comment_on_failure: false
+  transition_on_start: false
+  transition_on_success: false
+  transition_on_failure: false

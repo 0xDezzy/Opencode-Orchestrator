@@ -1,0 +1,47 @@
+# Binaries and build outputs
+orchestrator
+bin/
+build/
+dist/
+out/
+tmp/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go tooling
+coverage.out
+coverage.html
+*.coverprofile
+.golangci-cache/
+
+# Local runtime state
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.log
+logs/
+worktrees/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+config.yaml
+config.yml
+orchestrator.yaml
+orchestrator.yml
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
