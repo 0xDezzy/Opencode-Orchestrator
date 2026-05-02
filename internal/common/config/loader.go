@@ -38,7 +38,6 @@ func Load(path string) (*Config, error) {
 
 func setDefaults(v *viper.Viper, c Config) {
 	v.SetDefault("app.name", c.App.Name)
-	v.SetDefault("app.environment", c.App.Environment)
 	v.SetDefault("logging.level", c.Logging.Level)
 	v.SetDefault("logging.format", c.Logging.Format)
 	v.SetDefault("logging.file_path", c.Logging.FilePath)
