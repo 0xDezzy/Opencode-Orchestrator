@@ -16,16 +16,6 @@ import (
 	"issue-orchestrator/internal/llm"
 )
 
-type RunState string
-
-const (
-	RunStateClaimed      RunState = "claimed"
-	RunStatePreparing    RunState = "preparing"
-	RunStateRunningAgent RunState = "running_agent"
-	RunStateSucceeded    RunState = "succeeded"
-	RunStateFailed       RunState = "failed"
-)
-
 type Worker struct {
 	cfg     *config.Config
 	wf      *config.Workflow
