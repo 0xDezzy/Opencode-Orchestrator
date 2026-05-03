@@ -111,6 +111,14 @@ func (r *Repository) ListIssueSnapshots(ctx context.Context) ([]models.IssueSnap
 	err := r.db.WithContext(ctx).Order("fetched_at desc").Find(&snapshots).Error
 	return snapshots, err
 }
+func (r *Repository) FindIssueSnapshot(ctx context.Context, issue string) (*models.IssueSnapshot, error) {
+	var snapshot models.IssueSnapshot
+	err := r.db.WithContext(ctx).Where("issue_id = ? OR identifier = ?", issue, issue).First(&snapshot).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &snapshot, err
+}
 func (r *Repository) UpsertIssueSnapshot(ctx context.Context, s *models.IssueSnapshot) error {
 	var old models.IssueSnapshot
 	err := r.db.WithContext(ctx).Where("issue_id = ?", s.IssueID).First(&old).Error
