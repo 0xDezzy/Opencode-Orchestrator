@@ -3,6 +3,8 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -46,6 +48,9 @@ func (w *Worker) Run(ctx context.Context, run *models.Run, issue issues.Issue) {
 	if w.cfg != nil && w.cfg.Handoff.UpdateLinear && w.cfg.Handoff.TransitionOnStart && w.cfg.Linear.RunningState != "" {
 		w.transitionIssue(ctx, run, issue.ID, w.cfg.Linear.RunningState)
 	}
+	if w.cfg != nil && w.cfg.Handoff.UpdateLinear && w.cfg.Handoff.CommentOnStart {
+		w.commentIssue(ctx, run, issue.ID, "start", formatStartComment(run, issue))
+	}
 
 	_ = w.repo.UpdateRunState(ctx, run.ID, string(RunStateRunningAgent))
 	promptData := llm.PromptData{Issue: issue, RunID: run.ID, Attempt: run.Attempt}
@@ -84,6 +89,9 @@ func (w *Worker) Run(ctx context.Context, run *models.Run, issue issues.Issue) {
 	if w.cfg != nil && w.cfg.Handoff.UpdateLinear && w.cfg.Handoff.TransitionOnSuccess && w.cfg.Linear.ReviewState != "" {
 		w.transitionIssue(ctx, run, issue.ID, w.cfg.Linear.ReviewState)
 	}
+	if w.cfg != nil && w.cfg.Handoff.UpdateLinear && w.cfg.Handoff.CommentOnSuccess {
+		w.commentIssue(ctx, run, issue.ID, "success", formatSuccessComment(run, issue, result))
+	}
 }
 
 func (w *Worker) fail(ctx context.Context, run *models.Run, issue issues.Issue, err error) {
@@ -91,6 +99,69 @@ func (w *Worker) fail(ctx context.Context, run *models.Run, issue issues.Issue, 
 	if w.cfg != nil && w.cfg.Handoff.UpdateLinear && w.cfg.Handoff.TransitionOnFailure && w.cfg.Linear.FailedState != "" {
 		w.transitionIssue(ctx, run, issue.ID, w.cfg.Linear.FailedState)
 	}
+	if w.cfg != nil && w.cfg.Handoff.UpdateLinear && w.cfg.Handoff.CommentOnFailure {
+		w.commentIssue(ctx, run, issue.ID, "failure", formatFailureComment(run, issue, err, w.cfg))
+	}
+}
+
+func (w *Worker) commentIssue(ctx context.Context, run *models.Run, issueID, phase, body string) {
+	if w.tracker == nil || body == "" {
+		return
+	}
+	if err := w.tracker.Comment(ctx, issueID, body); err != nil {
+		if w.log != nil {
+			w.log.WithError(err).WithField("issue_id", issueID).Warn("linear comment failed")
+		}
+		w.appendEvent(ctx, run.ID, issueID, "linear.comment_failed", "linear", "failed to comment on issue", map[string]any{"phase": phase})
+		return
+	}
+	w.appendEvent(ctx, run.ID, issueID, "linear.comment", "linear", "commented on issue", map[string]any{"phase": phase})
+}
+
+func formatStartComment(run *models.Run, issue issues.Issue) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "**Agent run Started**\n\nIssue: %s - %s\nRun: %s\nAttempt: %d", issue.Identifier, issue.Title, run.ID, run.Attempt)
+	if run.BranchName != "" {
+		fmt.Fprintf(&b, "\nBranch: %s", run.BranchName)
+	}
+	if run.WorktreePath != "" {
+		fmt.Fprintf(&b, "\nWorktree: %s", run.WorktreePath)
+	}
+	return b.String()
+}
+
+func formatSuccessComment(run *models.Run, issue issues.Issue, result *agent.RunIssueResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "**Agent run Succeeded**\n\nIssue: %s - %s\nRun: %s\nAttempt: %d", issue.Identifier, issue.Title, run.ID, run.Attempt)
+	if result == nil {
+		return b.String()
+	}
+	if result.SessionID != "" {
+		fmt.Fprintf(&b, "\nSession: %s", result.SessionID)
+	}
+	if result.Summary != "" {
+		fmt.Fprintf(&b, "\n\nSummary:\n%s", result.Summary)
+	}
+	if len(result.ChangedFiles) > 0 {
+		b.WriteString("\n\nChanged files:")
+		for _, file := range result.ChangedFiles {
+			fmt.Fprintf(&b, "\n- %s", file)
+		}
+	}
+	return b.String()
+}
+
+func formatFailureComment(run *models.Run, issue issues.Issue, err error, cfg *config.Config) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "**Agent run Failed**\n\nIssue: %s - %s\nRun: %s\nAttempt: %d", issue.Identifier, issue.Title, run.ID, run.Attempt)
+	if err != nil {
+		reason := err.Error()
+		if cfg != nil && cfg.Linear.APIKey != "" {
+			reason = strings.ReplaceAll(reason, cfg.Linear.APIKey, "[redacted]")
+		}
+		fmt.Fprintf(&b, "\n\nReason:\n%s", reason)
+	}
+	return b.String()
 }
 
 func (w *Worker) transitionIssue(ctx context.Context, run *models.Run, issueID, state string) {
