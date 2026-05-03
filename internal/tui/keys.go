@@ -18,6 +18,7 @@ type keyMap struct {
 	Pause      key.Binding
 	ClearLogs  key.Binding
 	Tick       key.Binding
+	Reconcile  key.Binding
 }
 
 func defaultKeys() keyMap {
@@ -37,6 +38,7 @@ func defaultKeys() keyMap {
 		Pause:      key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "pause logs")),
 		ClearLogs:  key.NewBinding(key.WithKeys("ctrl+l"), key.WithHelp("ctrl+l", "clear logs")),
 		Tick:       key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "tick now")),
+		Reconcile:  key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("ctrl+r", "reconcile now")),
 	}
 }
 
@@ -49,6 +51,6 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.Quit, k.ToggleHelp, k.Close},
 		{k.Runs, k.Issues, k.Agents, k.Workspaces, k.Locks},
 		{k.Details, k.Filter, k.Top, k.Bottom},
-		{k.Pause, k.ClearLogs, k.Tick},
+		{k.Pause, k.ClearLogs, k.Tick, k.Reconcile},
 	}
 }

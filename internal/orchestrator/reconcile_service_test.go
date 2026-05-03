@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"issue-orchestrator/internal/app"
 	"issue-orchestrator/internal/common/config"
 	"issue-orchestrator/internal/db/models"
+	gitpkg "issue-orchestrator/internal/git"
 	"issue-orchestrator/internal/issues"
 )
 
@@ -120,7 +122,96 @@ func TestReconcilerMarksMissingWorkspacePathRemoved(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := workspaces[0].Status; got != "removed" {
-		t.Fatalf("workspace status = %q, want removed", got)
+	if len(workspaces) != 0 {
+		t.Fatalf("workspaces = %d, want pruned", len(workspaces))
+	}
+	issues, err := repo.ListIssueSnapshots(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 0 {
+		t.Fatalf("issue snapshots = %d, want pruned", len(issues))
+	}
+}
+
+func TestReconcilerPreservesRemovedIssueWorkspaceWithActiveRun(t *testing.T) {
+	repo := newTestRepository(t)
+	ctx := context.Background()
+	local := models.IssueSnapshot{IssueID: "issue-1", Identifier: "DEZ-11", Title: "Deleted issue", State: "Human Review", FetchedAt: time.Now()}
+	if err := repo.UpsertIssueSnapshot(ctx, &local); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.UpsertWorkspace(ctx, &models.Workspace{IssueID: local.IssueID, IssueIdentifier: local.Identifier, Path: "/path/that/does/not/exist", BranchName: "agent/dez-11", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.CreateRun(ctx, &models.Run{ID: "run-1", IssueID: local.IssueID, IssueIdentifier: local.Identifier, State: string(RunStateRunningAgent), Attempt: 1}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Defaults()
+	reconciler := NewReconciler(&cfg, repo, &fakeTracker{issuesByID: map[string]issues.Issue{}}, app.NewBus(), logrus.New())
+	summary := reconciler.Reconcile(ctx, ReconcileOptions{})
+
+	if summary.WorktreesPreserved != 1 {
+		t.Fatalf("worktrees preserved = %d, want 1", summary.WorktreesPreserved)
+	}
+	workspaces, err := repo.ListWorkspaces(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := workspaces[0].Status; got != "preserved_active" {
+		t.Fatalf("workspace status = %q, want preserved_active", got)
+	}
+	issues, err := repo.ListIssueSnapshots(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 1 || issues[0].State != "deleted" {
+		t.Fatalf("issue snapshots = %+v, want deleted snapshot preserved locally", issues)
+	}
+}
+
+func TestReconcilerRemovesCleanWorktreeForDeletedIssue(t *testing.T) {
+	repo := newTestRepository(t)
+	ctx := context.Background()
+	gitRepo := initTestGitRepo(t)
+	cfg := config.Defaults()
+	cfg.Workspace.RepoPath = gitRepo
+	cfg.Workspace.Root = t.TempDir()
+	cfg.Workspace.BaseBranch = "main"
+	local := models.IssueSnapshot{IssueID: "issue-1", Identifier: "DEZ-11", Title: "Deleted issue", State: "Human Review", FetchedAt: time.Now()}
+	wt, err := gitpkg.CreateOrReuseWorktree(ctx, gitpkg.WorktreeOptions{RepoPath: cfg.Workspace.RepoPath, WorkspaceRoot: cfg.Workspace.Root, IssueID: local.IssueID, IssueIdentifier: local.Identifier, Title: local.Title, BaseBranch: cfg.Workspace.BaseBranch, BranchPrefix: cfg.Workspace.BranchPrefix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.UpsertIssueSnapshot(ctx, &local); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.UpsertWorkspace(ctx, &models.Workspace{IssueID: local.IssueID, IssueIdentifier: local.Identifier, Path: wt.Path, BranchName: wt.BranchName, BaseBranch: cfg.Workspace.BaseBranch, Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+
+	reconciler := NewReconciler(&cfg, repo, &fakeTracker{issuesByID: map[string]issues.Issue{}}, app.NewBus(), logrus.New())
+	summary := reconciler.Reconcile(ctx, ReconcileOptions{})
+
+	if summary.WorktreesRemoved != 1 {
+		t.Fatalf("worktrees removed = %d, want 1", summary.WorktreesRemoved)
+	}
+	if _, err := os.Stat(wt.Path); !os.IsNotExist(err) {
+		t.Fatalf("worktree path still exists or unexpected error: %v", err)
+	}
+	workspaces, err := repo.ListWorkspaces(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(workspaces) != 0 {
+		t.Fatalf("workspaces = %d, want pruned", len(workspaces))
+	}
+	issues, err := repo.ListIssueSnapshots(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(issues) != 0 {
+		t.Fatalf("issue snapshots = %d, want pruned", len(issues))
 	}
 }

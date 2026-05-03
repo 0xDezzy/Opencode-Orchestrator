@@ -126,8 +126,15 @@ func TestSchedulerTickMarksMissingIssueRemovedAndReleasesLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := snapshot.Issues[0].State; got != "deleted" {
+	allIssues, err := repo.ListIssueSnapshots(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := allIssues[0].State; got != "deleted" {
 		t.Fatalf("snapshot state = %q, want deleted", got)
+	}
+	if len(snapshot.Issues) != 0 {
+		t.Fatalf("runtime issues = %d, want deleted issue hidden", len(snapshot.Issues))
 	}
 	if len(snapshot.Locks) != 0 {
 		t.Fatalf("locks = %d, want 0", len(snapshot.Locks))
@@ -194,8 +201,15 @@ func TestSchedulerTickDoesNotDispatchRemovedCandidate(t *testing.T) {
 	if len(snapshot.Workspaces) != 0 {
 		t.Fatalf("workspaces = %d, want 0", len(snapshot.Workspaces))
 	}
-	if got := snapshot.Issues[0].State; got != "deleted" {
+	allIssues, err := repo.ListIssueSnapshots(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := allIssues[0].State; got != "deleted" {
 		t.Fatalf("snapshot state = %q, want deleted", got)
+	}
+	if len(snapshot.Issues) != 0 {
+		t.Fatalf("runtime issues = %d, want deleted issue hidden", len(snapshot.Issues))
 	}
 }
 

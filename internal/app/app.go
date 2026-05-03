@@ -11,20 +11,28 @@ import (
 )
 
 type App struct {
-	Repo     *db.Repository
-	Bus      EventBus
-	tick     func(context.Context) error
-	shutdown func(context.Context) error
+	Repo      *db.Repository
+	Bus       EventBus
+	tick      func(context.Context) error
+	reconcile func(context.Context) error
+	shutdown  func(context.Context) error
 }
 
-func New(repo *db.Repository, bus EventBus) *App         { return &App{Repo: repo, Bus: bus} }
-func (a *App) SetTick(f func(context.Context) error)     { a.tick = f }
-func (a *App) SetShutdown(f func(context.Context) error) { a.shutdown = f }
+func New(repo *db.Repository, bus EventBus) *App          { return &App{Repo: repo, Bus: bus} }
+func (a *App) SetTick(f func(context.Context) error)      { a.tick = f }
+func (a *App) SetReconcile(f func(context.Context) error) { a.reconcile = f }
+func (a *App) SetShutdown(f func(context.Context) error)  { a.shutdown = f }
 func (a *App) RequestSchedulerTick(ctx context.Context) error {
 	if a.tick == nil {
 		return nil
 	}
 	return a.tick(ctx)
+}
+func (a *App) RequestReconcile(ctx context.Context) error {
+	if a.reconcile == nil {
+		return nil
+	}
+	return a.reconcile(ctx)
 }
 func (a *App) Shutdown(ctx context.Context) error {
 	if a.shutdown != nil {
