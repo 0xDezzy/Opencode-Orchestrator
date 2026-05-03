@@ -30,8 +30,16 @@ func daemonCmd() *cobra.Command {
 		defer cancel()
 		worker := orchestrator.NewWorker(c, wf, repo, tracker, runner, bus, log)
 		sched := orchestrator.NewScheduler(c, repo, tracker, worker, bus, log)
+		reconciler := orchestrator.NewReconciler(c, repo, tracker, bus, log)
 		ctrl := app.New(repo, bus)
 		ctrl.SetTick(sched.Tick)
+		ctrl.SetReconcile(func(ctx context.Context) error {
+			summary := reconciler.Reconcile(ctx, orchestrator.ReconcileOptions{})
+			if summary.Failed() {
+				return fmt.Errorf("reconcile completed with %d failure(s)", summary.Failures)
+			}
+			return nil
+		})
 		var srv *server.Server
 		if c.Server.Enabled {
 			srv = server.New(c.Server.Address, repo)

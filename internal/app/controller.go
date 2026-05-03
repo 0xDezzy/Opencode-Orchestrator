@@ -8,6 +8,7 @@ import (
 type Controller interface {
 	Snapshot(context.Context) (RuntimeSnapshot, error)
 	RequestSchedulerTick(context.Context) error
+	RequestReconcile(context.Context) error
 	Shutdown(context.Context) error
 }
 type RuntimeSnapshot struct {

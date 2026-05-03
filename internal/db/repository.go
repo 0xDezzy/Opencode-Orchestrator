@@ -137,6 +137,17 @@ func (r *Repository) UpdateIssueSnapshotState(ctx context.Context, issueID, stat
 func (r *Repository) MarkIssueSnapshotRemoved(ctx context.Context, issueID, state string) error {
 	return r.db.WithContext(ctx).Model(&models.IssueSnapshot{}).Where("issue_id = ?", issueID).Updates(map[string]any{"state": state, "fetched_at": time.Now()}).Error
 }
+func (r *Repository) PruneRemovedIssue(ctx context.Context, issueID string) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("issue_id = ?", issueID).Delete(&models.Lock{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("issue_id = ? AND status = ?", issueID, "removed").Delete(&models.Workspace{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("issue_id = ?", issueID).Delete(&models.IssueSnapshot{}).Error
+	})
+}
 func (r *Repository) UpsertWorkspace(ctx context.Context, w *models.Workspace) error {
 	var old models.Workspace
 	err := r.db.WithContext(ctx).Where("issue_id = ?", w.IssueID).First(&old).Error
@@ -162,7 +173,7 @@ func (r *Repository) RuntimeSnapshot(ctx context.Context) (*RuntimeSnapshotData,
 	if err := r.db.WithContext(ctx).Order("updated_at desc").Limit(100).Find(&d.Runs).Error; err != nil {
 		return nil, err
 	}
-	if err := r.db.WithContext(ctx).Order("fetched_at desc").Limit(100).Find(&d.Issues).Error; err != nil {
+	if err := r.db.WithContext(ctx).Where("LOWER(state) NOT IN ?", []string{"deleted", "archived"}).Order("fetched_at desc").Limit(100).Find(&d.Issues).Error; err != nil {
 		return nil, err
 	}
 	d.Workspaces, _ = r.ListWorkspaces(ctx)

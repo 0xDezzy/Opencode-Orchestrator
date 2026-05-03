@@ -16,7 +16,21 @@ type ctrl struct{}
 
 func (ctrl) Snapshot(context.Context) (app.RuntimeSnapshot, error) { return app.RuntimeSnapshot{}, nil }
 func (ctrl) RequestSchedulerTick(context.Context) error            { return nil }
+func (ctrl) RequestReconcile(context.Context) error                { return nil }
 func (ctrl) Shutdown(context.Context) error                        { return nil }
+
+type reconcileCtrl struct{ reconciles int }
+
+func (*reconcileCtrl) Snapshot(context.Context) (app.RuntimeSnapshot, error) {
+	return app.RuntimeSnapshot{}, nil
+}
+func (*reconcileCtrl) RequestSchedulerTick(context.Context) error { return nil }
+func (c *reconcileCtrl) RequestReconcile(context.Context) error {
+	c.reconciles++
+	return nil
+}
+func (*reconcileCtrl) Shutdown(context.Context) error { return nil }
+
 func TestUpdateViewSwitchAndLogs(t *testing.T) {
 	m := New(context.Background(), ctrl{}, nil, nil, 10)
 	mm, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'i'}})
@@ -28,6 +42,21 @@ func TestUpdateViewSwitchAndLogs(t *testing.T) {
 	got = mm.(Model)
 	if len(got.logLines) != 1 {
 		t.Fatal("log not appended")
+	}
+}
+
+func TestCtrlRRequestsReconcile(t *testing.T) {
+	c := &reconcileCtrl{}
+	m := New(context.Background(), c, nil, nil, 10)
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	if cmd == nil {
+		t.Fatal("ctrl+r did not return a command")
+	}
+	if msg := cmd(); msg.(ErrorMsg).Err != nil {
+		t.Fatalf("reconcile command returned error: %v", msg.(ErrorMsg).Err)
+	}
+	if c.reconciles != 1 {
+		t.Fatalf("reconciles = %d, want 1", c.reconciles)
 	}
 }
 

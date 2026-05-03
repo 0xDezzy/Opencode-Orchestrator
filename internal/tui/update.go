@@ -83,6 +83,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.paused = !m.paused
 		case key.Matches(msg, m.keys.Tick):
 			return m, func() tea.Msg { return ErrorMsg{m.controller.RequestSchedulerTick(m.ctx)} }
+		case key.Matches(msg, m.keys.Reconcile):
+			return m, func() tea.Msg { return ErrorMsg{m.controller.RequestReconcile(m.ctx)} }
 		}
 	case SnapshotMsg:
 		m.snapshot = msg.Snapshot

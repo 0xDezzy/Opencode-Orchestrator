@@ -61,6 +61,27 @@ func HasUnpushedCommits(ctx context.Context, worktreePath string) (bool, error) 
 	}
 	return strings.TrimSpace(out) != "0", nil
 }
+func HasUnpushedCommitsFromBase(ctx context.Context, worktreePath, baseBranch string) (bool, error) {
+	if _, err := run(ctx, worktreePath, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"); err == nil {
+		out, err := run(ctx, worktreePath, "rev-list", "--count", "@{u}..HEAD")
+		if err != nil {
+			return true, err
+		}
+		return strings.TrimSpace(out) != "0", nil
+	}
+	if baseBranch == "" {
+		return true, nil
+	}
+	baseRef := baseBranch
+	if _, err := run(ctx, worktreePath, "rev-parse", "--verify", "origin/"+baseBranch); err == nil {
+		baseRef = "origin/" + baseBranch
+	}
+	out, err := run(ctx, worktreePath, "rev-list", "--count", baseRef+"..HEAD")
+	if err != nil {
+		return true, err
+	}
+	return strings.TrimSpace(out) != "0", nil
+}
 func ChangedFiles(ctx context.Context, worktreePath string) ([]string, error) {
 	out, err := run(ctx, worktreePath, "diff", "--name-only")
 	if err != nil {

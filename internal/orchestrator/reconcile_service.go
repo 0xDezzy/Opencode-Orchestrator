@@ -142,6 +142,7 @@ func (r *Reconciler) markIssueRemoved(ctx context.Context, snapshot models.Issue
 		summary.LocksReleased += released
 	}
 	r.reconcileRemovedWorkspace(ctx, snapshot.IssueID, snapshot.Identifier, state, opts, summary)
+	r.pruneRemovedIssue(ctx, snapshot.IssueID, snapshot.Identifier, opts, summary)
 	summary.addDecision(fmt.Sprintf("marked issue %s %s", firstNonEmpty(snapshot.Identifier, snapshot.IssueID), state))
 	r.emit(ctx, snapshot.IssueID, opts, "linear.issue_removed", "marked Linear issue removed", map[string]any{"state": state})
 }
@@ -183,18 +184,26 @@ func (r *Reconciler) reconcileWorkspace(ctx context.Context, issueID, identifier
 	if err != nil || workspace == nil || workspace.Status == "removed" || strings.HasPrefix(workspace.Status, "preserved") {
 		return
 	}
+	active, err := r.repo.FindActiveRunByIssue(ctx, issueID)
+	if err != nil {
+		summary.addFailure(err.Error())
+		return
+	}
+	if active != nil {
+		status := "active_terminal"
+		msg := "preserved terminal worktree with active run"
+		typ := "worktree.terminal_preserved"
+		if removedIssue {
+			status = "preserved_active"
+			msg = "preserved removed issue worktree with active run"
+			typ = "worktree.removed_preserved"
+		}
+		r.updateWorkspace(ctx, issueID, status, workspace.Dirty, opts, summary)
+		summary.WorktreesPreserved++
+		r.workspaceDecision(ctx, issueID, identifier, opts, typ, msg, state, workspace.Path, workspace.Dirty, summary)
+		return
+	}
 	if !removedIssue {
-		active, err := r.repo.FindActiveRunByIssue(ctx, issueID)
-		if err != nil {
-			summary.addFailure(err.Error())
-			return
-		}
-		if active != nil {
-			r.updateWorkspace(ctx, issueID, "active_terminal", workspace.Dirty, opts, summary)
-			summary.WorktreesPreserved++
-			r.workspaceDecision(ctx, issueID, identifier, opts, "worktree.terminal_preserved", "preserved terminal worktree with active run", state, workspace.Path, workspace.Dirty, summary)
-			return
-		}
 		if r.preserveTerminalWorkspace(state) {
 			r.updateWorkspace(ctx, issueID, "preserved", workspace.Dirty, opts, summary)
 			summary.WorktreesPreserved++
@@ -209,7 +218,7 @@ func (r *Reconciler) reconcileWorkspace(ctx context.Context, issueID, identifier
 		if hasChanges, err := git.HasChanges(ctx, workspace.Path); err == nil && hasChanges {
 			dirty = true
 		}
-		if unpushed, err := git.HasUnpushedCommits(ctx, workspace.Path); err != nil || unpushed {
+		if unpushed, err := git.HasUnpushedCommitsFromBase(ctx, workspace.Path, workspace.BaseBranch); err != nil || unpushed {
 			dirty = true
 		}
 	}
@@ -248,6 +257,30 @@ func (r *Reconciler) reconcileWorkspace(ctx context.Context, issueID, identifier
 		typ = "worktree.removed"
 	}
 	r.workspaceDecision(ctx, issueID, identifier, opts, typ, msg, state, workspace.Path, false, summary)
+}
+
+func (r *Reconciler) pruneRemovedIssue(ctx context.Context, issueID, identifier string, opts ReconcileOptions, summary *ReconcileSummary) {
+	if opts.DryRun {
+		return
+	}
+	workspace, err := r.repo.FindWorkspaceByIssue(ctx, issueID)
+	if err != nil {
+		summary.addFailure(err.Error())
+		return
+	}
+	if workspace != nil {
+		if workspace.Status != "removed" {
+			return
+		}
+		if workspace.Path != "" && git.WorktreeExists(workspace.Path) {
+			return
+		}
+	}
+	if err := r.repo.PruneRemovedIssue(ctx, issueID); err != nil {
+		summary.addFailure(err.Error())
+		return
+	}
+	summary.addDecision(fmt.Sprintf("pruned removed issue %s from local state", firstNonEmpty(identifier, issueID)))
 }
 
 func (r *Reconciler) updateWorkspace(ctx context.Context, issueID, status string, dirty bool, opts ReconcileOptions, summary *ReconcileSummary) {

@@ -134,7 +134,7 @@ func (s *Scheduler) reconcileRemovedWorkspace(ctx context.Context, issueID, iden
 		if hasChanges, err := git.HasChanges(ctx, workspace.Path); err == nil && hasChanges {
 			dirty = true
 		}
-		if unpushed, err := git.HasUnpushedCommits(ctx, workspace.Path); err != nil || unpushed {
+		if unpushed, err := git.HasUnpushedCommitsFromBase(ctx, workspace.Path, workspace.BaseBranch); err != nil || unpushed {
 			dirty = true
 		}
 	}
@@ -184,7 +184,7 @@ func (s *Scheduler) reconcileTerminalWorkspace(ctx context.Context, issueID, ide
 		if hasChanges, err := git.HasChanges(ctx, workspace.Path); err == nil && hasChanges {
 			dirty = true
 		}
-		if unpushed, err := git.HasUnpushedCommits(ctx, workspace.Path); err != nil || unpushed {
+		if unpushed, err := git.HasUnpushedCommitsFromBase(ctx, workspace.Path, workspace.BaseBranch); err != nil || unpushed {
 			dirty = true
 		}
 	}
