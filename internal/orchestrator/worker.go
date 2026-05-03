@@ -34,18 +34,32 @@ func (w *Worker) Run(ctx context.Context, run *models.Run, issue issues.Issue) {
 	if run.StartedAt.IsZero() {
 		run.StartedAt = time.Now()
 	}
+	startUpdates := map[string]any{"started_at": run.StartedAt}
+	if run.WorktreePath != "" {
+		startUpdates["worktree_path"] = run.WorktreePath
+	}
+	if run.BranchName != "" {
+		startUpdates["branch_name"] = run.BranchName
+	}
+	_ = w.repo.DB().WithContext(ctx).Model(&models.Run{}).Where("id = ?", run.ID).Updates(startUpdates).Error
 	_ = w.repo.UpdateRunState(ctx, run.ID, string(RunStatePreparing))
 	if w.cfg != nil && w.cfg.Handoff.UpdateLinear && w.cfg.Handoff.TransitionOnStart && w.cfg.Linear.RunningState != "" {
 		w.transitionIssue(ctx, run, issue.ID, w.cfg.Linear.RunningState)
 	}
 
 	_ = w.repo.UpdateRunState(ctx, run.ID, string(RunStateRunningAgent))
-	prompt, err := llm.Render(w.wf, llm.PromptData{Issue: issue})
+	promptData := llm.PromptData{Issue: issue, RunID: run.ID, Attempt: run.Attempt}
+	promptData.Workspace.Path = run.WorktreePath
+	promptData.Workspace.BranchName = run.BranchName
+	if w.cfg != nil {
+		promptData.Workspace.BaseBranch = w.cfg.Workspace.BaseBranch
+	}
+	prompt, err := llm.Render(w.wf, promptData)
 	if err != nil {
 		w.fail(ctx, run, issue, err)
 		return
 	}
-	result, err := w.runner.RunIssue(ctx, agent.RunIssueRequest{RunID: run.ID, Issue: issue, Prompt: prompt, Attempt: run.Attempt, EmitEvent: w.emitAgentEvent(run, issue.ID)})
+	result, err := w.runner.RunIssue(ctx, agent.RunIssueRequest{RunID: run.ID, Issue: issue, WorktreeDir: run.WorktreePath, BranchName: run.BranchName, Prompt: prompt, Attempt: run.Attempt, EmitEvent: w.emitAgentEvent(run, issue.ID)})
 	if err != nil {
 		w.fail(ctx, run, issue, err)
 		return
