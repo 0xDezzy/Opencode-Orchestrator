@@ -81,7 +81,7 @@ func (s *Scheduler) reconcileTerminalIssues(ctx context.Context, skip map[string
 		fetched++
 		issue, err := s.tracker.FetchIssue(ctx, snapshot.IssueID)
 		if err != nil {
-			if issues.IsIssueNotFound(err) {
+			if issues.IsIssueRemoved(err) {
 				s.markIssueRemoved(ctx, snapshot, "deleted")
 				continue
 			}

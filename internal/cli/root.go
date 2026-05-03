@@ -8,10 +8,10 @@ import (
 )
 
 type flags struct {
-	config, workflow, logLevel                 string
-	tui, noTUI, jsonLogs, plainLogs, once, yes bool
-	issue                                      string
-	pollInterval                               string
+	config, workflow, logLevel                                      string
+	tui, noTUI, jsonLogs, plainLogs, once, yes, dryRun, force, json bool
+	issue                                                           string
+	pollInterval                                                    string
 }
 
 var f flags
@@ -28,6 +28,6 @@ func rootCmd() *cobra.Command {
 	cmd.PersistentFlags().StringVarP(&f.config, "config", "c", "", "config file")
 	cmd.PersistentFlags().StringVarP(&f.workflow, "workflow", "w", "", "workflow file")
 	cmd.PersistentFlags().StringVar(&f.logLevel, "log-level", "", "log level")
-	cmd.AddCommand(daemonCmd(), runCmd(), statusCmd(), dbCmd(), versionCmd())
+	cmd.AddCommand(daemonCmd(), runCmd(), statusCmd(), dbCmd(), reconcileCmd(), versionCmd())
 	return cmd
 }
