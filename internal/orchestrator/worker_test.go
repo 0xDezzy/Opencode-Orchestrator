@@ -57,6 +57,13 @@ func (fakeRunner) RunIssue(context.Context, agent.RunIssueRequest) (*agent.RunIs
 	return &agent.RunIssueResult{Summary: "done"}, nil
 }
 
+type capturingRunner struct{ req agent.RunIssueRequest }
+
+func (r *capturingRunner) RunIssue(_ context.Context, req agent.RunIssueRequest) (*agent.RunIssueResult, error) {
+	r.req = req
+	return &agent.RunIssueResult{Summary: "done"}, nil
+}
+
 type fakeTracker struct {
 	candidates       []issues.Issue
 	issuesByID       map[string]issues.Issue

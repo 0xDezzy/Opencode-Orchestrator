@@ -12,6 +12,7 @@ import (
 	"issue-orchestrator/internal/common/config"
 	"issue-orchestrator/internal/db"
 	"issue-orchestrator/internal/db/models"
+	"issue-orchestrator/internal/git"
 	"issue-orchestrator/internal/issues"
 )
 
@@ -76,7 +77,18 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 		if err != nil || active != nil {
 			return err
 		}
-		run := &models.Run{ID: uuid.NewString(), IssueID: issue.ID, IssueIdentifier: issue.Identifier, IssueURL: issue.URL, State: string(RunStateClaimed), Attempt: 1, AgentName: "opencode"}
+		wt, err := git.CreateOrReuseWorktree(ctx, git.WorktreeOptions{RepoPath: s.cfg.Workspace.RepoPath, WorkspaceRoot: s.cfg.Workspace.Root, IssueID: issue.ID, IssueIdentifier: issue.Identifier, Title: issue.Title, BaseBranch: s.cfg.Workspace.BaseBranch, BranchPrefix: s.cfg.Workspace.BranchPrefix})
+		if err != nil {
+			return err
+		}
+		dirty := false
+		if hasChanges, err := git.HasChanges(ctx, wt.Path); err == nil {
+			dirty = hasChanges
+		}
+		if err := s.repo.UpsertWorkspace(ctx, &models.Workspace{IssueID: issue.ID, IssueIdentifier: issue.Identifier, Path: wt.Path, BranchName: wt.BranchName, BaseBranch: s.cfg.Workspace.BaseBranch, Status: "active", Dirty: dirty}); err != nil {
+			return err
+		}
+		run := &models.Run{ID: uuid.NewString(), IssueID: issue.ID, IssueIdentifier: issue.Identifier, IssueURL: issue.URL, State: string(RunStateClaimed), Attempt: 1, WorktreePath: wt.Path, BranchName: wt.BranchName, AgentName: "opencode"}
 		if err := s.repo.CreateRun(ctx, run); err != nil {
 			return err
 		}
