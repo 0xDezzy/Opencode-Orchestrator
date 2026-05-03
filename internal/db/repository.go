@@ -92,6 +92,22 @@ func (r *Repository) ListWorkspaces(ctx context.Context) ([]models.Workspace, er
 	err := r.db.WithContext(ctx).Order("updated_at desc").Find(&w).Error
 	return w, err
 }
+func (r *Repository) FindWorkspaceByIssue(ctx context.Context, issueID string) (*models.Workspace, error) {
+	var w models.Workspace
+	err := r.db.WithContext(ctx).Where("issue_id = ?", issueID).First(&w).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &w, err
+}
+func (r *Repository) UpdateWorkspaceStatus(ctx context.Context, issueID, status string, dirty bool) error {
+	return r.db.WithContext(ctx).Model(&models.Workspace{}).Where("issue_id = ?", issueID).Updates(map[string]any{"status": status, "dirty": dirty}).Error
+}
+func (r *Repository) ListIssueSnapshots(ctx context.Context) ([]models.IssueSnapshot, error) {
+	var snapshots []models.IssueSnapshot
+	err := r.db.WithContext(ctx).Order("fetched_at desc").Find(&snapshots).Error
+	return snapshots, err
+}
 func (r *Repository) UpsertIssueSnapshot(ctx context.Context, s *models.IssueSnapshot) error {
 	var old models.IssueSnapshot
 	err := r.db.WithContext(ctx).Where("issue_id = ?", s.IssueID).First(&old).Error

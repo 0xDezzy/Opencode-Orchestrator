@@ -62,9 +62,15 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	fetched := make(map[string]struct{}, len(candidates))
 	for _, issue := range candidates {
+		fetched[issue.ID] = struct{}{}
 		if err := s.repo.UpsertIssueSnapshot(ctx, snapshotFromIssue(issue)); err != nil {
 			return err
+		}
+		if s.isTerminalState(issue.State) {
+			s.reconcileTerminalWorkspace(ctx, issue.ID, issue.Identifier, issue.State)
+			continue
 		}
 		active, err := s.repo.FindActiveRunByIssue(ctx, issue.ID)
 		if err != nil || active != nil {
@@ -82,6 +88,7 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 			}
 		}
 	}
+	s.reconcileTerminalIssues(ctx, fetched)
 	if s.bus != nil {
 		s.bus.Publish(app.RuntimeEvent{Type: "scheduler.tick.finished"})
 	}

@@ -57,12 +57,25 @@ func (fakeRunner) RunIssue(context.Context, agent.RunIssueRequest) (*agent.RunIs
 	return &agent.RunIssueResult{Summary: "done"}, nil
 }
 
-type fakeTracker struct{}
-
-func (fakeTracker) FetchCandidateIssues(context.Context, issues.FetchOptions) ([]issues.Issue, error) {
-	return nil, nil
+type fakeTracker struct {
+	candidates       []issues.Issue
+	issuesByID       map[string]issues.Issue
+	candidateFetches int
+	issueFetches     int
 }
 
-func (fakeTracker) FetchIssue(context.Context, string) (*issues.Issue, error) { return nil, nil }
-func (fakeTracker) Comment(context.Context, string, string) error             { return nil }
-func (fakeTracker) Transition(context.Context, string, string) error          { return nil }
+func (f *fakeTracker) FetchCandidateIssues(context.Context, issues.FetchOptions) ([]issues.Issue, error) {
+	f.candidateFetches++
+	return f.candidates, nil
+}
+
+func (f *fakeTracker) FetchIssue(_ context.Context, id string) (*issues.Issue, error) {
+	f.issueFetches++
+	issue, ok := f.issuesByID[id]
+	if !ok {
+		return nil, nil
+	}
+	return &issue, nil
+}
+func (*fakeTracker) Comment(context.Context, string, string) error    { return nil }
+func (*fakeTracker) Transition(context.Context, string, string) error { return nil }
