@@ -1,6 +1,5 @@
 app:
   name: orchestrator
-  environment: dev
 logging:
   level: info
   format: text
