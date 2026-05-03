@@ -2,10 +2,14 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"issue-orchestrator/internal/app"
 	"issue-orchestrator/internal/db/models"
+	"issue-orchestrator/internal/git"
 )
 
 func activeRunState(state string) bool {
@@ -42,4 +46,117 @@ func staleClaimedRunAge(poll time.Duration) time.Duration {
 		return time.Minute
 	}
 	return threshold
+}
+
+func (s *Scheduler) reconcileTerminalIssues(ctx context.Context, skip map[string]struct{}) {
+	if s.tracker == nil || s.repo == nil || s.cfg == nil || len(s.cfg.Linear.TerminalStates) == 0 {
+		return
+	}
+	snapshots, err := s.repo.ListIssueSnapshots(ctx)
+	if err != nil {
+		return
+	}
+	for _, snapshot := range snapshots {
+		state := snapshot.State
+		if !s.isTerminalState(state) {
+			if _, ok := skip[snapshot.IssueID]; ok {
+				continue
+			}
+			issue, err := s.tracker.FetchIssue(ctx, snapshot.IssueID)
+			if err != nil || issue == nil || !s.isTerminalState(issue.State) {
+				continue
+			}
+			state = issue.State
+			if err := s.repo.UpdateIssueSnapshotState(ctx, snapshot.IssueID, state); err != nil {
+				continue
+			}
+			s.appendSchedulerEvent(ctx, snapshot.IssueID, "linear.terminal_reconciled", "reconciled terminal Linear state", map[string]any{"state": state})
+		}
+		s.reconcileTerminalWorkspace(ctx, snapshot.IssueID, snapshot.Identifier, state)
+	}
+}
+
+func (s *Scheduler) reconcileTerminalWorkspace(ctx context.Context, issueID, identifier, state string) {
+	if s.repo == nil || s.cfg == nil || !s.isTerminalState(state) {
+		return
+	}
+	workspace, err := s.repo.FindWorkspaceByIssue(ctx, issueID)
+	if err != nil || workspace == nil || workspace.Status == "removed" || strings.HasPrefix(workspace.Status, "preserved") {
+		return
+	}
+	active, err := s.repo.FindActiveRunByIssue(ctx, issueID)
+	if err != nil || active != nil {
+		if workspace.Status != "active_terminal" {
+			_ = s.repo.UpdateWorkspaceStatus(ctx, issueID, "active_terminal", workspace.Dirty)
+			s.emitTerminalWorkspaceEvent(ctx, issueID, identifier, "worktree.terminal_preserved", "preserved terminal worktree with active run", state, workspace.Path, workspace.Dirty)
+		}
+		return
+	}
+	if s.preserveTerminalWorkspace(state) {
+		_ = s.repo.UpdateWorkspaceStatus(ctx, issueID, "preserved", workspace.Dirty)
+		s.emitTerminalWorkspaceEvent(ctx, issueID, identifier, "worktree.terminal_preserved", "preserved terminal worktree", state, workspace.Path, workspace.Dirty)
+		return
+	}
+	dirty := workspace.Dirty
+	if workspace.Path != "" && git.WorktreeExists(workspace.Path) {
+		if hasChanges, err := git.HasChanges(ctx, workspace.Path); err == nil && hasChanges {
+			dirty = true
+		}
+		if unpushed, err := git.HasUnpushedCommits(ctx, workspace.Path); err != nil || unpushed {
+			dirty = true
+		}
+	}
+	if dirty {
+		_ = s.repo.UpdateWorkspaceStatus(ctx, issueID, "preserved_dirty", true)
+		s.emitTerminalWorkspaceEvent(ctx, issueID, identifier, "worktree.terminal_preserved", "preserved dirty or unpushed terminal worktree", state, workspace.Path, true)
+		return
+	}
+	if workspace.Path != "" && git.WorktreeExists(workspace.Path) {
+		if err := git.RemoveWorktree(ctx, s.cfg.Workspace.RepoPath, workspace.Path, false); err != nil {
+			_ = s.repo.UpdateWorkspaceStatus(ctx, issueID, "preserved_remove_failed", false)
+			s.emitTerminalWorkspaceEvent(ctx, issueID, identifier, "worktree.terminal_preserved", fmt.Sprintf("preserved terminal worktree after removal failed: %v", err), state, workspace.Path, false)
+			return
+		}
+	}
+	_ = s.repo.UpdateWorkspaceStatus(ctx, issueID, "removed", false)
+	s.emitTerminalWorkspaceEvent(ctx, issueID, identifier, "worktree.terminal_removed", "removed terminal worktree", state, workspace.Path, false)
+}
+
+func (s *Scheduler) isTerminalState(state string) bool {
+	if s.cfg == nil {
+		return false
+	}
+	for _, terminal := range s.cfg.Linear.TerminalStates {
+		if strings.EqualFold(terminal, state) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Scheduler) preserveTerminalWorkspace(state string) bool {
+	if strings.EqualFold(state, "Done") {
+		return s.cfg.Workspace.PreserveSuccessful
+	}
+	return s.cfg.Workspace.PreserveFailed
+}
+
+func (s *Scheduler) emitTerminalWorkspaceEvent(ctx context.Context, issueID, identifier, typ, message, state, path string, dirty bool) {
+	s.appendSchedulerEvent(ctx, issueID, typ, message, map[string]any{"identifier": identifier, "state": state, "path": path, "dirty": dirty})
+	if s.log != nil {
+		s.log.WithFields(map[string]any{"issue_id": issueID, "identifier": identifier, "state": state, "path": path, "dirty": dirty}).Info(message)
+	}
+}
+
+func (s *Scheduler) appendSchedulerEvent(ctx context.Context, issueID, typ, message string, payload any) {
+	var raw string
+	if payload != nil {
+		if b, err := json.Marshal(payload); err == nil {
+			raw = string(b)
+		}
+	}
+	_ = s.repo.AppendEvent(ctx, &models.Event{IssueID: issueID, Type: typ, Source: "scheduler", Message: message, PayloadJSON: raw})
+	if s.bus != nil {
+		s.bus.Publish(app.RuntimeEvent{Type: typ, IssueID: issueID, Payload: payload})
+	}
 }

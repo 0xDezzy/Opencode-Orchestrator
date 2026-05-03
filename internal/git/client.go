@@ -51,6 +51,16 @@ func HasChanges(ctx context.Context, worktreePath string) (bool, error) {
 	out, err := run(ctx, worktreePath, "status", "--porcelain")
 	return strings.TrimSpace(out) != "", err
 }
+func HasUnpushedCommits(ctx context.Context, worktreePath string) (bool, error) {
+	if _, err := run(ctx, worktreePath, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"); err != nil {
+		return true, nil
+	}
+	out, err := run(ctx, worktreePath, "rev-list", "--count", "@{u}..HEAD")
+	if err != nil {
+		return true, err
+	}
+	return strings.TrimSpace(out) != "0", nil
+}
 func ChangedFiles(ctx context.Context, worktreePath string) ([]string, error) {
 	out, err := run(ctx, worktreePath, "diff", "--name-only")
 	if err != nil {
