@@ -204,6 +204,7 @@ type fakeTracker struct {
 	candidateFetches int
 	issueFetches     int
 	comments         []fakeComment
+	lastOptions      issues.FetchOptions
 }
 
 type fakeComment struct {
@@ -211,8 +212,9 @@ type fakeComment struct {
 	body    string
 }
 
-func (f *fakeTracker) FetchCandidateIssues(context.Context, issues.FetchOptions) ([]issues.Issue, error) {
+func (f *fakeTracker) FetchCandidateIssues(_ context.Context, opts issues.FetchOptions) ([]issues.Issue, error) {
 	f.candidateFetches++
+	f.lastOptions = opts
 	return f.candidates, nil
 }
 
