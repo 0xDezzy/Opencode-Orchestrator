@@ -38,11 +38,20 @@ func CreateOrReuseWorktree(ctx context.Context, o WorktreeOptions) (*Worktree, e
 	if hasRemote(ctx, o.RepoPath, "origin") {
 		base = "origin/" + o.BaseBranch
 	}
-	_, err = run(ctx, o.RepoPath, "worktree", "add", "-b", branch, path, base)
+	if branchExists(ctx, o.RepoPath, branch) {
+		_, err = run(ctx, o.RepoPath, "worktree", "add", path, branch)
+	} else {
+		_, err = run(ctx, o.RepoPath, "worktree", "add", "-b", branch, path, base)
+	}
 	if err != nil {
 		return nil, err
 	}
 	return &Worktree{Path: path, BranchName: branch}, nil
+}
+
+func branchExists(ctx context.Context, repoPath, branch string) bool {
+	_, err := run(ctx, repoPath, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	return err == nil
 }
 
 func hasRemote(ctx context.Context, repoPath, remote string) bool {

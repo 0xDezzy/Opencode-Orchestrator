@@ -43,3 +43,14 @@ func TestOpenCodeEnvReplacesInlineConfig(t *testing.T) {
 		t.Fatalf("expected one OPENCODE_CONFIG_CONTENT entry, got %d in %#v", count, got)
 	}
 }
+
+func TestOpenCodeEnvSetsServerPassword(t *testing.T) {
+	got := openCodeEnv([]string{"A=B", "OPENCODE_SERVER_PASSWORD=old", "C=D"}, config.OpenCodeConfig{ServerPassword: "secret"})
+	joined := strings.Join(got, "\n")
+	if strings.Contains(joined, "OPENCODE_SERVER_PASSWORD=old") {
+		t.Fatalf("env kept old server password: %#v", got)
+	}
+	if !strings.Contains(joined, "OPENCODE_SERVER_PASSWORD=secret") {
+		t.Fatalf("env missing server password: %#v", got)
+	}
+}

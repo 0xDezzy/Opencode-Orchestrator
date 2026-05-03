@@ -33,6 +33,18 @@ func (c Config) Validate(requireLinear bool) error {
 	if c.OpenCode.Command == "" {
 		return fmt.Errorf("opencode command is required")
 	}
+	if c.OpenCode.ServerURL == "" {
+		return fmt.Errorf("opencode server url is required")
+	}
+	if c.OpenCode.ServeHost == "" {
+		return fmt.Errorf("opencode serve host is required")
+	}
+	if c.OpenCode.ServePort <= 0 {
+		return fmt.Errorf("opencode serve port must be positive")
+	}
+	if c.OpenCode.StartupTimeout <= 0 {
+		return fmt.Errorf("opencode startup timeout must be positive")
+	}
 	if c.TUI.RefreshInterval <= 0 {
 		return fmt.Errorf("tui refresh interval must be positive")
 	}

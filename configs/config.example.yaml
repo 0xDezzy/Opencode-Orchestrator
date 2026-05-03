@@ -50,7 +50,14 @@ llm:
   select_tasks: true
 opencode:
   command: opencode
-  args: [acp]
+  args: [serve]
+  server_url: http://127.0.0.1:4096
+  # Prefer ORCH_OPENCODE_SERVER_PASSWORD or OPENCODE_SERVER_PASSWORD for secrets.
+  server_password: ""
+  serve_host: 127.0.0.1
+  serve_port: 4096
+  auto_start_server: true
+  startup_timeout: 10s
   # OpenCode model IDs use provider/model format. Run `opencode models --refresh`
   # or `opencode models <provider>` to find valid values.
   model: ""
