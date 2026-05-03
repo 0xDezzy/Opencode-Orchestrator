@@ -79,17 +79,150 @@ func fitColumns(cols []table.Column, width int) []table.Column {
 	}
 	separators := len(out) * 2
 	budget := width - separators
-	if budget <= 0 || total <= budget {
+	if budget <= 0 || total == budget {
 		return out
 	}
-	for i := range out {
-		w := out[i].Width * budget / total
-		if w < 6 {
-			w = 6
-		}
-		out[i].Width = w
+	if total < budget {
+		expandColumns(out, budget-total)
+		return out
 	}
+	shrinkColumns(out, budget)
 	return out
+}
+
+func expandColumns(cols []table.Column, extra int) {
+	if extra <= 0 {
+		return
+	}
+	totalWeight := 0
+	for _, c := range cols {
+		totalWeight += columnFlexWeight(c.Title)
+	}
+	if totalWeight == 0 {
+		return
+	}
+	remaining := extra
+	for i := range cols {
+		weight := columnFlexWeight(cols[i].Title)
+		if weight == 0 {
+			continue
+		}
+		grow := extra * weight / totalWeight
+		cols[i].Width += grow
+		remaining -= grow
+	}
+	for remaining > 0 {
+		for i := range cols {
+			if remaining == 0 {
+				return
+			}
+			if columnFlexWeight(cols[i].Title) == 0 {
+				continue
+			}
+			cols[i].Width++
+			remaining--
+		}
+	}
+}
+
+func shrinkColumns(cols []table.Column, budget int) {
+	if budget <= 0 {
+		return
+	}
+	mins := make([]int, len(cols))
+	maxes := make([]int, len(cols))
+	totalMin := 0
+	for i := range cols {
+		mins[i] = minColumnWidth(cols[i])
+		maxes[i] = cols[i].Width
+		totalMin += mins[i]
+	}
+	if budget <= totalMin {
+		setProportionalWidths(cols, mins, totalMin, budget)
+		return
+	}
+	remaining := budget - totalMin
+	totalShrinkable := 0
+	for i := range cols {
+		totalShrinkable += cols[i].Width - mins[i]
+	}
+	if totalShrinkable == 0 {
+		return
+	}
+	used := totalMin
+	for i := range cols {
+		shrinkable := cols[i].Width - mins[i]
+		cols[i].Width = mins[i]
+		if shrinkable == 0 {
+			continue
+		}
+		grow := remaining * shrinkable / totalShrinkable
+		cols[i].Width += grow
+		used += grow
+	}
+	for used < budget {
+		for i := range cols {
+			if used == budget {
+				return
+			}
+			if cols[i].Width < maxes[i] {
+				cols[i].Width++
+				used++
+			}
+		}
+	}
+}
+
+func setProportionalWidths(cols []table.Column, mins []int, totalMin, budget int) {
+	total := 0
+	for i := range cols {
+		cols[i].Width = mins[i] * budget / totalMin
+		if cols[i].Width < 1 {
+			cols[i].Width = 1
+		}
+		total += cols[i].Width
+	}
+	for total > budget {
+		largest := -1
+		for i := range cols {
+			if cols[i].Width <= 1 {
+				continue
+			}
+			if largest == -1 || cols[i].Width > cols[largest].Width {
+				largest = i
+			}
+		}
+		if largest == -1 {
+			return
+		}
+		cols[largest].Width--
+		total--
+	}
+}
+
+func minColumnWidth(c table.Column) int {
+	if c.Width <= 4 {
+		return c.Width
+	}
+	if len(c.Title) < 6 {
+		return 4
+	}
+	return 6
+}
+
+func columnFlexWeight(title string) int {
+	switch title {
+	case "Title":
+		return 4
+	case "Branch", "Path", "Last Event":
+		return 3
+	case "Updated", "Created", "Expires":
+		return 2
+	case "Labels", "Assignee", "Session ID", "Issue":
+		return 1
+	default:
+		return 0
+	}
 }
 
 func columnsFor(v viewName) []table.Column {
