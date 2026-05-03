@@ -52,6 +52,9 @@ func (r *Repository) AcquireIssueLock(ctx context.Context, issueID, runID string
 func (r *Repository) ReleaseIssueLock(ctx context.Context, issueID, runID string) error {
 	return r.db.WithContext(ctx).Where("issue_id = ? AND run_id = ?", issueID, runID).Delete(&models.Lock{}).Error
 }
+func (r *Repository) ReleaseIssueLocks(ctx context.Context, issueID string) error {
+	return r.db.WithContext(ctx).Where("issue_id = ?", issueID).Delete(&models.Lock{}).Error
+}
 func (r *Repository) CleanupExpiredLocks(ctx context.Context) error {
 	return r.db.WithContext(ctx).Where("expires_at < ?", time.Now()).Delete(&models.Lock{}).Error
 }
@@ -121,6 +124,9 @@ func (r *Repository) UpsertIssueSnapshot(ctx context.Context, s *models.IssueSna
 	return r.db.WithContext(ctx).Save(s).Error
 }
 func (r *Repository) UpdateIssueSnapshotState(ctx context.Context, issueID, state string) error {
+	return r.db.WithContext(ctx).Model(&models.IssueSnapshot{}).Where("issue_id = ?", issueID).Updates(map[string]any{"state": state, "fetched_at": time.Now()}).Error
+}
+func (r *Repository) MarkIssueSnapshotRemoved(ctx context.Context, issueID, state string) error {
 	return r.db.WithContext(ctx).Model(&models.IssueSnapshot{}).Where("issue_id = ?", issueID).Updates(map[string]any{"state": state, "fetched_at": time.Now()}).Error
 }
 func (r *Repository) UpsertWorkspace(ctx context.Context, w *models.Workspace) error {

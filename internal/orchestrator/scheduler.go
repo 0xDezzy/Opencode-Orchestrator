@@ -17,13 +17,14 @@ import (
 )
 
 type Scheduler struct {
-	cfg         *config.Config
-	repo        *db.Repository
-	tracker     issues.Tracker
-	worker      *Worker
-	bus         app.EventBus
-	log         *logrus.Logger
-	synchronous bool
+	cfg               *config.Config
+	repo              *db.Repository
+	tracker           issues.Tracker
+	worker            *Worker
+	bus               app.EventBus
+	log               *logrus.Logger
+	synchronous       bool
+	lastFullReconcile time.Time
 }
 
 func NewScheduler(cfg *config.Config, repo *db.Repository, tracker issues.Tracker, worker *Worker, bus app.EventBus, log *logrus.Logger) *Scheduler {
@@ -68,6 +69,11 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 		fetched[issue.ID] = struct{}{}
 		if err := s.repo.UpsertIssueSnapshot(ctx, snapshotFromIssue(issue)); err != nil {
 			return err
+		}
+		if isRemovedIssueState(issue.State) {
+			_ = s.repo.ReleaseIssueLocks(ctx, issue.ID)
+			s.appendSchedulerEvent(ctx, issue.ID, "linear.issue_removed", "skipped removed Linear issue", map[string]any{"state": issue.State})
+			continue
 		}
 		if s.isTerminalState(issue.State) {
 			s.reconcileTerminalWorkspace(ctx, issue.ID, issue.Identifier, issue.State)

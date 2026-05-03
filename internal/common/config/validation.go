@@ -15,6 +15,12 @@ func (c Config) Validate(requireLinear bool) error {
 	if c.Scheduler.PollInterval <= 0 {
 		return fmt.Errorf("scheduler poll interval must be positive")
 	}
+	if c.Scheduler.ReconcileInterval < 0 {
+		return fmt.Errorf("scheduler reconcile interval must not be negative")
+	}
+	if c.Scheduler.ReconcileBatchLimit < 0 {
+		return fmt.Errorf("scheduler reconcile batch limit must not be negative")
+	}
 	if c.Scheduler.MaxConcurrentRuns < 1 {
 		return fmt.Errorf("scheduler max concurrent runs must be at least 1")
 	}
