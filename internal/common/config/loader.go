@@ -53,6 +53,8 @@ func setDefaults(v *viper.Viper, c Config) {
 	v.SetDefault("workspace.base_branch", c.Workspace.BaseBranch)
 	v.SetDefault("workspace.branch_prefix", c.Workspace.BranchPrefix)
 	v.SetDefault("scheduler.poll_interval", c.Scheduler.PollInterval)
+	v.SetDefault("scheduler.reconcile_interval", c.Scheduler.ReconcileInterval)
+	v.SetDefault("scheduler.reconcile_batch_limit", c.Scheduler.ReconcileBatchLimit)
 	v.SetDefault("scheduler.max_concurrent_runs", c.Scheduler.MaxConcurrentRuns)
 	v.SetDefault("scheduler.max_attempts", c.Scheduler.MaxAttempts)
 	v.SetDefault("scheduler.lock_ttl", c.Scheduler.LockTTL)

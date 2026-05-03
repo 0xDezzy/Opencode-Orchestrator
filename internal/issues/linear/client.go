@@ -75,7 +75,7 @@ func (c *Client) FetchIssue(ctx context.Context, id string) (*issues.Issue, erro
 			return &iss, nil
 		}
 	}
-	return nil, err
+	return nil, fmt.Errorf("%w: %s", issues.ErrIssueNotFound, id)
 }
 func (c *Client) Comment(ctx context.Context, issueID, body string) error {
 	if err := validateMutationTarget(issueID); err != nil {

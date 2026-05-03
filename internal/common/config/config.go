@@ -54,12 +54,14 @@ type WorkspaceConfig struct {
 	PreserveSuccessful bool   `mapstructure:"preserve_successful" json:"preserve_successful"`
 }
 type SchedulerConfig struct {
-	PollInterval      time.Duration `mapstructure:"poll_interval"`
-	MaxConcurrentRuns int           `mapstructure:"max_concurrent_runs"`
-	MaxAttempts       int           `mapstructure:"max_attempts"`
-	LockTTL           time.Duration `mapstructure:"lock_ttl"`
-	RetryBackoff      time.Duration `mapstructure:"retry_backoff"`
-	IssueStaleAfter   time.Duration `mapstructure:"issue_stale_after"`
+	PollInterval        time.Duration `mapstructure:"poll_interval"`
+	ReconcileInterval   time.Duration `mapstructure:"reconcile_interval"`
+	ReconcileBatchLimit int           `mapstructure:"reconcile_batch_limit"`
+	MaxConcurrentRuns   int           `mapstructure:"max_concurrent_runs"`
+	MaxAttempts         int           `mapstructure:"max_attempts"`
+	LockTTL             time.Duration `mapstructure:"lock_ttl"`
+	RetryBackoff        time.Duration `mapstructure:"retry_backoff"`
+	IssueStaleAfter     time.Duration `mapstructure:"issue_stale_after"`
 }
 type LLMConfig struct {
 	Provider        string        `mapstructure:"provider" json:"provider"`
@@ -91,5 +93,5 @@ type HandoffConfig struct {
 }
 
 func Defaults() Config {
-	return Config{App: AppConfig{"orchestrator"}, Logging: LoggingConfig{Level: "info", Format: "text", FilePath: "./.orchestrator/orchestrator.log", TUIMirrorToFile: true}, Server: ServerConfig{true, "127.0.0.1:8787"}, TUI: TUIConfig{Enabled: true, RefreshInterval: time.Second, MaxLogLines: 1000, Table: "runs", LogFormat: "json"}, SQLite: SQLiteConfig{"./.orchestrator/orchestrator.db"}, Linear: LinearConfig{ActiveStates: []string{"Ready for Agent"}, TerminalStates: []string{"Done", "Canceled", "Duplicate"}, RunningState: "Agent Running", ReviewState: "Human Review", FailedState: "Agent Failed", Labels: LabelConfig{Include: []string{"agent"}, Exclude: []string{"no-agent"}}}, Workspace: WorkspaceConfig{RepoPath: ".", Root: "./.orchestrator/worktrees", BaseBranch: "main", BranchPrefix: "agent", PreserveFailed: true, PreserveSuccessful: true}, Scheduler: SchedulerConfig{PollInterval: 30 * time.Second, MaxConcurrentRuns: 2, MaxAttempts: 3, LockTTL: 2 * time.Hour, RetryBackoff: 5 * time.Minute, IssueStaleAfter: 24 * time.Hour}, LLM: LLMConfig{Provider: "ollama", Model: "granite4.1:latest", BaseURL: "http://localhost:11434/v1", Timeout: 30 * time.Second, MaxOutputTokens: 1200, Temperature: 0.1, SelectTasks: true}, OpenCode: OpenCodeConfig{Command: "opencode", Args: []string{"acp"}, Model: "", SmallModel: "", Timeout: 2 * time.Hour, StallTimeout: 10 * time.Minute, MaxPromptAttempts: 1}, Handoff: HandoffConfig{UpdateLinear: true, CommentOnStart: true, CommentOnSuccess: true, CommentOnFailure: true, TransitionOnStart: true, TransitionOnSuccess: true}}
+	return Config{App: AppConfig{"orchestrator"}, Logging: LoggingConfig{Level: "info", Format: "text", FilePath: "./.orchestrator/orchestrator.log", TUIMirrorToFile: true}, Server: ServerConfig{true, "127.0.0.1:8787"}, TUI: TUIConfig{Enabled: true, RefreshInterval: time.Second, MaxLogLines: 1000, Table: "runs", LogFormat: "json"}, SQLite: SQLiteConfig{"./.orchestrator/orchestrator.db"}, Linear: LinearConfig{ActiveStates: []string{"Ready for Agent"}, TerminalStates: []string{"Done", "Canceled", "Duplicate"}, RunningState: "Agent Running", ReviewState: "Human Review", FailedState: "Agent Failed", Labels: LabelConfig{Include: []string{"agent"}, Exclude: []string{"no-agent"}}}, Workspace: WorkspaceConfig{RepoPath: ".", Root: "./.orchestrator/worktrees", BaseBranch: "main", BranchPrefix: "agent", PreserveFailed: true, PreserveSuccessful: true}, Scheduler: SchedulerConfig{PollInterval: 30 * time.Second, ReconcileInterval: 10 * time.Minute, ReconcileBatchLimit: 100, MaxConcurrentRuns: 2, MaxAttempts: 3, LockTTL: 2 * time.Hour, RetryBackoff: 5 * time.Minute, IssueStaleAfter: 24 * time.Hour}, LLM: LLMConfig{Provider: "ollama", Model: "granite4.1:latest", BaseURL: "http://localhost:11434/v1", Timeout: 30 * time.Second, MaxOutputTokens: 1200, Temperature: 0.1, SelectTasks: true}, OpenCode: OpenCodeConfig{Command: "opencode", Args: []string{"acp"}, Model: "", SmallModel: "", Timeout: 2 * time.Hour, StallTimeout: 10 * time.Minute, MaxPromptAttempts: 1}, Handoff: HandoffConfig{UpdateLinear: true, CommentOnStart: true, CommentOnSuccess: true, CommentOnFailure: true, TransitionOnStart: true, TransitionOnSuccess: true}}
 }

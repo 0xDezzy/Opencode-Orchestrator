@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,6 +53,149 @@ func TestSchedulerTickReconcilesTerminalSnapshotWithoutDispatch(t *testing.T) {
 	}
 	if len(snapshot.Runs) != 0 {
 		t.Fatalf("runs = %d, want 0", len(snapshot.Runs))
+	}
+}
+
+func TestSchedulerTickRefreshesNonTerminalSnapshotProperties(t *testing.T) {
+	repo := newTestRepository(t)
+	ctx := context.Background()
+	stale := time.Now().Add(-2 * time.Hour)
+	local := models.IssueSnapshot{IssueID: "issue-1", Identifier: "DEZ-6", Title: "Old title", Description: "old", URL: "https://old", State: "Human Review", LabelsJSON: `["old"]`, Priority: "Low", Assignee: "Old", RawJSON: `{"old":true}`, FetchedAt: stale}
+	if err := repo.UpsertIssueSnapshot(ctx, &local); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Defaults()
+	cfg.Scheduler.IssueStaleAfter = time.Hour
+	tracker := &fakeTracker{issuesByID: map[string]issues.Issue{
+		"issue-1": {ID: "issue-1", Identifier: "DEZ-6A", Title: "New title", Description: "new", URL: "https://new", State: "Human Review", Labels: []string{"agent", "bug"}, Priority: "High", Assignee: "Alice", Raw: map[string]any{"new": true}},
+	}}
+	scheduler := NewScheduler(&cfg, repo, tracker, nil, app.NewBus(), logrus.New())
+
+	if err := scheduler.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := repo.RuntimeSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := snapshot.Issues[0]
+	if got.Identifier != "DEZ-6A" || got.Title != "New title" || got.Description != "new" || got.URL != "https://new" || got.State != "Human Review" || got.Priority != "High" || got.Assignee != "Alice" {
+		t.Fatalf("snapshot was not fully refreshed: %+v", got)
+	}
+	var labels []string
+	if err := json.Unmarshal([]byte(got.LabelsJSON), &labels); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(labels, ",") != "agent,bug" {
+		t.Fatalf("labels = %q, want agent,bug", strings.Join(labels, ","))
+	}
+	if !strings.Contains(got.RawJSON, `"new":true`) {
+		t.Fatalf("raw json = %q, want refreshed raw payload", got.RawJSON)
+	}
+	if !got.FetchedAt.After(stale) {
+		t.Fatalf("fetched_at = %v, want after %v", got.FetchedAt, stale)
+	}
+}
+
+func TestSchedulerTickMarksMissingIssueRemovedAndReleasesLock(t *testing.T) {
+	repo := newTestRepository(t)
+	ctx := context.Background()
+	local := models.IssueSnapshot{IssueID: "issue-1", Identifier: "DEZ-6", Title: "Missing issue", URL: "https://linear.app/issue/DEZ-6", State: "Human Review", FetchedAt: time.Now().Add(-2 * time.Hour)}
+	if err := repo.UpsertIssueSnapshot(ctx, &local); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.UpsertWorkspace(ctx, &models.Workspace{IssueID: local.IssueID, IssueIdentifier: local.Identifier, BranchName: "agent/dez-6", Status: "active"}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := repo.AcquireIssueLock(ctx, local.IssueID, "run-1", time.Hour); err != nil || !ok {
+		t.Fatalf("acquire lock ok=%v err=%v", ok, err)
+	}
+
+	cfg := config.Defaults()
+	cfg.Scheduler.IssueStaleAfter = time.Hour
+	tracker := &fakeTracker{issuesByID: map[string]issues.Issue{}}
+	scheduler := NewScheduler(&cfg, repo, tracker, nil, app.NewBus(), logrus.New())
+
+	if err := scheduler.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := repo.RuntimeSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := snapshot.Issues[0].State; got != "deleted" {
+		t.Fatalf("snapshot state = %q, want deleted", got)
+	}
+	if len(snapshot.Locks) != 0 {
+		t.Fatalf("locks = %d, want 0", len(snapshot.Locks))
+	}
+	if got := snapshot.Workspaces[0].Status; got != "removed" {
+		t.Fatalf("workspace status = %q, want removed", got)
+	}
+	var events []models.Event
+	if err := repo.DB().WithContext(ctx).Where("type = ?", "linear.issue_removed").Find(&events).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("linear.issue_removed events = %d, want 1", len(events))
+	}
+}
+
+func TestSchedulerTickSkipsFullReconcileUntilCadenceElapses(t *testing.T) {
+	repo := newTestRepository(t)
+	ctx := context.Background()
+	local := models.IssueSnapshot{IssueID: "issue-1", Identifier: "DEZ-6", Title: "Issue", URL: "https://linear.app/issue/DEZ-6", State: "Human Review", FetchedAt: time.Now().Add(-2 * time.Hour)}
+	if err := repo.UpsertIssueSnapshot(ctx, &local); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Defaults()
+	cfg.Scheduler.IssueStaleAfter = time.Hour
+	cfg.Scheduler.ReconcileInterval = time.Hour
+	tracker := &fakeTracker{issuesByID: map[string]issues.Issue{
+		"issue-1": {ID: "issue-1", Identifier: "DEZ-6", Title: "Issue", URL: local.URL, State: "Human Review"},
+	}}
+	scheduler := NewScheduler(&cfg, repo, tracker, nil, app.NewBus(), logrus.New())
+
+	if err := scheduler.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := scheduler.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if tracker.issueFetches != 1 {
+		t.Fatalf("issue fetches = %d, want 1", tracker.issueFetches)
+	}
+}
+
+func TestSchedulerTickDoesNotDispatchRemovedCandidate(t *testing.T) {
+	repo := newTestRepository(t)
+	ctx := context.Background()
+	issue := issues.Issue{ID: "issue-removed", Identifier: "DEZ-11", Title: "Removed", URL: "https://linear.app/issue/DEZ-11", State: "deleted"}
+
+	cfg := config.Defaults()
+	tracker := &fakeTracker{candidates: []issues.Issue{issue}}
+	scheduler := NewScheduler(&cfg, repo, tracker, nil, app.NewBus(), logrus.New())
+
+	if err := scheduler.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := repo.RuntimeSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Runs) != 0 {
+		t.Fatalf("runs = %d, want 0", len(snapshot.Runs))
+	}
+	if len(snapshot.Workspaces) != 0 {
+		t.Fatalf("workspaces = %d, want 0", len(snapshot.Workspaces))
+	}
+	if got := snapshot.Issues[0].State; got != "deleted" {
+		t.Fatalf("snapshot state = %q, want deleted", got)
 	}
 }
 

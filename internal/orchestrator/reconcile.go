@@ -10,6 +10,7 @@ import (
 	"issue-orchestrator/internal/app"
 	"issue-orchestrator/internal/db/models"
 	"issue-orchestrator/internal/git"
+	"issue-orchestrator/internal/issues"
 )
 
 func activeRunState(state string) bool {
@@ -49,7 +50,7 @@ func staleClaimedRunAge(poll time.Duration) time.Duration {
 }
 
 func (s *Scheduler) reconcileTerminalIssues(ctx context.Context, skip map[string]struct{}) {
-	if s.tracker == nil || s.repo == nil || s.cfg == nil || len(s.cfg.Linear.TerminalStates) == 0 {
+	if s.tracker == nil || s.repo == nil || s.cfg == nil {
 		return
 	}
 	snapshots, err := s.repo.ListIssueSnapshots(ctx)
@@ -57,23 +58,104 @@ func (s *Scheduler) reconcileTerminalIssues(ctx context.Context, skip map[string
 		return
 	}
 	for _, snapshot := range snapshots {
-		state := snapshot.State
-		if !s.isTerminalState(state) {
-			if _, ok := skip[snapshot.IssueID]; ok {
-				continue
-			}
-			issue, err := s.tracker.FetchIssue(ctx, snapshot.IssueID)
-			if err != nil || issue == nil || !s.isTerminalState(issue.State) {
-				continue
-			}
-			state = issue.State
-			if err := s.repo.UpdateIssueSnapshotState(ctx, snapshot.IssueID, state); err != nil {
-				continue
-			}
-			s.appendSchedulerEvent(ctx, snapshot.IssueID, "linear.terminal_reconciled", "reconciled terminal Linear state", map[string]any{"state": state})
+		if s.isTerminalState(snapshot.State) {
+			s.reconcileTerminalWorkspace(ctx, snapshot.IssueID, snapshot.Identifier, snapshot.State)
 		}
-		s.reconcileTerminalWorkspace(ctx, snapshot.IssueID, snapshot.Identifier, state)
 	}
+	if !s.fullReconcileDue(time.Now()) {
+		return
+	}
+	s.lastFullReconcile = time.Now()
+	limit := s.cfg.Scheduler.ReconcileBatchLimit
+	fetched := 0
+	for _, snapshot := range snapshots {
+		if _, ok := skip[snapshot.IssueID]; ok {
+			continue
+		}
+		if isRemovedIssueState(snapshot.State) {
+			continue
+		}
+		if limit > 0 && fetched >= limit {
+			break
+		}
+		fetched++
+		issue, err := s.tracker.FetchIssue(ctx, snapshot.IssueID)
+		if err != nil {
+			if issues.IsIssueNotFound(err) {
+				s.markIssueRemoved(ctx, snapshot, "deleted")
+				continue
+			}
+			s.appendSchedulerEvent(ctx, snapshot.IssueID, "linear.reconcile_failed", "failed to reconcile Linear issue", map[string]any{"error": err.Error()})
+			continue
+		}
+		if issue == nil {
+			s.markIssueRemoved(ctx, snapshot, "deleted")
+			continue
+		}
+		if err := s.repo.UpsertIssueSnapshot(ctx, snapshotFromIssue(*issue)); err != nil {
+			s.appendSchedulerEvent(ctx, snapshot.IssueID, "linear.reconcile_failed", "failed to update issue snapshot", map[string]any{"error": err.Error()})
+			continue
+		}
+		s.appendSchedulerEvent(ctx, issue.ID, "linear.issue_reconciled", "reconciled Linear issue", map[string]any{"state": issue.State})
+		if s.isTerminalState(issue.State) {
+			s.reconcileTerminalWorkspace(ctx, issue.ID, issue.Identifier, issue.State)
+		}
+	}
+}
+
+func (s *Scheduler) fullReconcileDue(now time.Time) bool {
+	if s.lastFullReconcile.IsZero() {
+		return true
+	}
+	interval := s.cfg.Scheduler.ReconcileInterval
+	if interval <= 0 {
+		return true
+	}
+	return !now.Before(s.lastFullReconcile.Add(interval))
+}
+
+func (s *Scheduler) markIssueRemoved(ctx context.Context, snapshot models.IssueSnapshot, state string) {
+	if err := s.repo.MarkIssueSnapshotRemoved(ctx, snapshot.IssueID, state); err != nil {
+		s.appendSchedulerEvent(ctx, snapshot.IssueID, "linear.reconcile_failed", "failed to mark removed Linear issue", map[string]any{"error": err.Error()})
+		return
+	}
+	_ = s.repo.ReleaseIssueLocks(ctx, snapshot.IssueID)
+	s.reconcileRemovedWorkspace(ctx, snapshot.IssueID, snapshot.Identifier, state)
+	s.appendSchedulerEvent(ctx, snapshot.IssueID, "linear.issue_removed", "marked Linear issue removed", map[string]any{"state": state})
+}
+
+func (s *Scheduler) reconcileRemovedWorkspace(ctx context.Context, issueID, identifier, state string) {
+	workspace, err := s.repo.FindWorkspaceByIssue(ctx, issueID)
+	if err != nil || workspace == nil || workspace.Status == "removed" || strings.HasPrefix(workspace.Status, "preserved") {
+		return
+	}
+	dirty := workspace.Dirty
+	if workspace.Path != "" && git.WorktreeExists(workspace.Path) {
+		if hasChanges, err := git.HasChanges(ctx, workspace.Path); err == nil && hasChanges {
+			dirty = true
+		}
+		if unpushed, err := git.HasUnpushedCommits(ctx, workspace.Path); err != nil || unpushed {
+			dirty = true
+		}
+	}
+	if dirty {
+		_ = s.repo.UpdateWorkspaceStatus(ctx, issueID, "preserved_dirty", true)
+		s.emitTerminalWorkspaceEvent(ctx, issueID, identifier, "worktree.removed_preserved", "preserved dirty or unpushed removed issue worktree", state, workspace.Path, true)
+		return
+	}
+	if workspace.Path != "" && git.WorktreeExists(workspace.Path) {
+		if err := git.RemoveWorktree(ctx, s.cfg.Workspace.RepoPath, workspace.Path, false); err != nil {
+			_ = s.repo.UpdateWorkspaceStatus(ctx, issueID, "preserved_remove_failed", false)
+			s.emitTerminalWorkspaceEvent(ctx, issueID, identifier, "worktree.removed_preserved", fmt.Sprintf("preserved removed issue worktree after removal failed: %v", err), state, workspace.Path, false)
+			return
+		}
+	}
+	_ = s.repo.UpdateWorkspaceStatus(ctx, issueID, "removed", false)
+	s.emitTerminalWorkspaceEvent(ctx, issueID, identifier, "worktree.removed", "removed worktree for removed Linear issue", state, workspace.Path, false)
+}
+
+func isRemovedIssueState(state string) bool {
+	return strings.EqualFold(state, "deleted") || strings.EqualFold(state, "archived")
 }
 
 func (s *Scheduler) reconcileTerminalWorkspace(ctx context.Context, issueID, identifier, state string) {
