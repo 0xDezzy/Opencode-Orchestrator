@@ -57,14 +57,25 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 		return nil
 	}
 	opts := issues.FetchOptions{}
+	maxConcurrentRuns := 0
+	availableSlots := 0
 	if s.cfg != nil {
-		opts = issues.FetchOptions{TeamKey: s.cfg.Linear.TeamKey, ProjectName: s.cfg.Linear.ProjectName, ActiveStates: s.cfg.Linear.ActiveStates, IncludeLabels: s.cfg.Linear.Labels.Include, ExcludeLabels: s.cfg.Linear.Labels.Exclude, Limit: s.cfg.Scheduler.MaxConcurrentRuns}
+		maxConcurrentRuns = s.cfg.Scheduler.MaxConcurrentRuns
+		opts = issues.FetchOptions{TeamKey: s.cfg.Linear.TeamKey, ProjectName: s.cfg.Linear.ProjectName, ActiveStates: s.cfg.Linear.ActiveStates, IncludeLabels: s.cfg.Linear.Labels.Include, ExcludeLabels: s.cfg.Linear.Labels.Exclude, Limit: maxConcurrentRuns}
+		if maxConcurrentRuns > 0 {
+			activeRuns, err := s.repo.ListActiveRuns(ctx)
+			if err != nil {
+				return err
+			}
+			availableSlots = maxConcurrentRuns - len(activeRuns)
+		}
 	}
 	candidates, err := s.tracker.FetchCandidateIssues(ctx, opts)
 	if err != nil {
 		return err
 	}
 	fetched := make(map[string]struct{}, len(candidates))
+	dispatched := 0
 	for _, issue := range candidates {
 		fetched[issue.ID] = struct{}{}
 		if err := s.repo.UpsertIssueSnapshot(ctx, snapshotFromIssue(issue)); err != nil {
@@ -79,9 +90,15 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 			s.reconcileTerminalWorkspace(ctx, issue.ID, issue.Identifier, issue.State)
 			continue
 		}
+		if maxConcurrentRuns > 0 && dispatched >= availableSlots {
+			continue
+		}
 		active, err := s.repo.FindActiveRunByIssue(ctx, issue.ID)
-		if err != nil || active != nil {
+		if err != nil {
 			return err
+		}
+		if active != nil {
+			continue
 		}
 		wt, err := git.CreateOrReuseWorktree(ctx, git.WorktreeOptions{RepoPath: s.cfg.Workspace.RepoPath, WorkspaceRoot: s.cfg.Workspace.Root, IssueID: issue.ID, IssueIdentifier: issue.Identifier, Title: issue.Title, BaseBranch: s.cfg.Workspace.BaseBranch, BranchPrefix: s.cfg.Workspace.BranchPrefix})
 		if err != nil {
@@ -98,6 +115,7 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 		if err := s.repo.CreateRun(ctx, run); err != nil {
 			return err
 		}
+		dispatched++
 		if s.worker != nil {
 			if s.synchronous {
 				s.worker.Run(ctx, run, issue)
