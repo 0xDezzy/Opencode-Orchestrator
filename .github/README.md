@@ -94,3 +94,5 @@ Common project areas:
 ## Attribution
 
 This project was built utilizing <a href="https://github.com/anomalyco/opencode">opencode</a>.
+
+Please note, this project was vibe coded for the most part. I wanted to mess around with things and I wanted to see how far I could go with it. There will most likely be bugs. I'm still working through things and I just wanted to get this to work for me.
